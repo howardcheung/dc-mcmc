@@ -94,9 +94,9 @@
       DOUBLE PRECISION RandomNumber
 
 !    INTERNAL VARIABLE
-      Integer PreviousState               !Last state
+      DOUBLE PRECISION PreviousState               !Last state
       DOUBLE PRECISION PreviousTime       !Previous operation/Current maintenance time
-      Integer CurrentState                !State calculated 
+      DOUBLE PRECISION CurrentState                !State calculated 
       DOUBLE PRECISION CurrentTime        !Current operation/Future maintenance time
       DOUBLE PRECISION ProbUnchanged      !Probaility to remain in the current state
 
@@ -239,7 +239,7 @@
 	!Perform All of the Calculations Here to Set the Outputs from the Model Based on the Inputs
     
       !Update the operation time when it is normal
-      If ((DelayedOnOff.EQ.1).AND.(PreviousState.EQ.1)) Then
+      If ((DelayedOnOff.GT.0.999).AND.(PreviousState.GT.0.999)) Then
         PreviousTime = PreviousTime + Timestep  !Now it is the current operation time
       EndIf
 
@@ -247,22 +247,22 @@
       ProbUnchanged = 1.0
       CurrentState = PreviousState
       CurrentTime = PreviousTime
-      If (PreviousState.EQ.1) Then
+      If (PreviousState.GT.0.999) Then
         ProbUnchanged = EXP(-(PreviousTime/MTTF))
         If (RandomNumber.GT.ProbUnchanged) Then
-          CurrentState = 0
+          CurrentState = 0.0
           CurrentTime = Timestep  !Intial maintenance time
         Else
-          CurrentState = 1
+          CurrentState = 1.0
           CurrentTime = PreviousTime
         EndIf
       Else
         ProbUnchanged = EXP(-(PreviousTime/MTTR))
         If (RandomNumber.GT.ProbUnchanged) Then
-          CurrentState = 1
+          CurrentState = 1.0
           CurrentTime = 0.0  !Operation time to be updated in the next iteration
         Else
-          CurrentState = 0
+          CurrentState = 0.0
           CurrentTime = PreviousTime + Timestep
         EndIf
       EndIf
