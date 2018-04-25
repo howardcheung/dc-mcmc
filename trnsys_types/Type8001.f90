@@ -12,7 +12,7 @@
 ! It uses dynamic storage to store the state of the machine and the time of the machine
 ! in the previous time step to judge if the machine should be available for control in the
 ! current time step. Since the calculation is based on the operation time of a machine
-! when it is normal, it also expects an delayed input of control on/off of the machine 
+! when it is normal, it also expects an delayed input of control on/off of the machine
 ! from Type150 too.
 ! 
 ! At start time:
@@ -42,12 +42,16 @@
 ! *** Model Inputs 
 ! *** 
 !			DelayedOnOff	- [0;1]
+!			RandomNumber	- [0;1]
 
 ! *** 
 ! *** Model Outputs 
 ! *** 
 !			CurrentState	- [0;1]
 !			CurrentStateTime	hr [0;+Inf]
+!			ProbUnchanged	- [0;+Inf]
+!			PreviousState	- [0;1]
+!			PreviousTime	- [0;+Inf]
 
 ! *** 
 ! *** Model Derivatives 
@@ -87,6 +91,14 @@
 
 !    INPUTS
       DOUBLE PRECISION DelayedOnOff
+      DOUBLE PRECISION RandomNumber
+
+!    INTERNAL VARIABLE
+      Integer PreviousState               !Last state
+      DOUBLE PRECISION PreviousTime       !Previous operation/Current maintenance time
+      Integer CurrentState                !State calculated 
+      DOUBLE PRECISION CurrentTime        !Current operation/Future maintenance time
+      DOUBLE PRECISION ProbUnchanged      !Probaility to remain in the current state
 
 !-----------------------------------------------------------------------------------------------------------------------
 
@@ -126,11 +138,11 @@
 
 		!Tell the TRNSYS Engine How This Type Works
 		Call SetNumberofParameters(3)           !The number of parameters that the the model wants
-		Call SetNumberofInputs(1)                   !The number of inputs that the the model wants
+		Call SetNumberofInputs(2)                   !The number of inputs that the the model wants
 		Call SetNumberofDerivatives(0)         !The number of derivatives that the the model wants
-		Call SetNumberofOutputs(2)                 !The number of outputs that the the model produces
+		Call SetNumberofOutputs(5)                 !The number of outputs that the the model produces
 		Call SetIterationMode(1)                             !An indicator for the iteration mode (default=1).  Refer to section 8.4.3.5 of the documentation for more details.
-		Call SetNumberStoredVariables(0,0)                   !The number of static variables that the model wants stored in the global storage array and the number of dynamic variables that the model wants stored in the global storage array
+		Call SetNumberStoredVariables(0,2)                   !The number of static variables that the model wants stored in the global storage array and the number of dynamic variables that the model wants stored in the global storage array
 		Call SetNumberofDiscreteControls(0)               !The number of discrete control functions set by this model (a value greater than zero requires the user to use Solver 1: Powell's method)
 
 		Return
@@ -147,6 +159,7 @@
 
 
       DelayedOnOff = GetInputValue(1)
+      RandomNumber = GetInputValue(2)
 
 	
    !Check the Parameters for Problems (#,ErrorType,Text)
@@ -155,6 +168,9 @@
    !Set the Initial Values of the Outputs (#,Value)
 		Call SetOutputValue(1, 1) ! CurrentState
 		Call SetOutputValue(2, 0) ! CurrentStateTime
+		Call SetOutputValue(3, 0) ! ProbUnchanged
+		Call SetOutputValue(4, 0) ! PreviousState
+		Call SetOutputValue(5, 0) ! PreviousTime
 
 
    !If Needed, Set the Initial Values of the Static Storage Variables (#,Value)
@@ -162,6 +178,10 @@
 
    !If Needed, Set the Initial Values of the Dynamic Storage Variables (#,Value)
    !Sample Code: Call SetDynamicArrayValueThisIteration(1,20.d0)
+   
+      !Set the values of dynamic storages
+        Call setDynamicArrayInitialValue(1,InitialState)
+        Call setDynamicArrayInitialValue(2,0.0)
 
    !If Needed, Set the Initial Values of the Discrete Controllers (#,Value)
    !Sample Code for Controller 1 Set to Off: Call SetDesiredDiscreteControlState(1,0) 
@@ -185,6 +205,7 @@
 
 !Read the Inputs
       DelayedOnOff = GetInputValue(1)
+      RandomNumber = GetInputValue(2)
 		
 
 	!Check the Inputs for Problems (#,ErrorType,Text)
@@ -211,26 +232,50 @@
 	!If Needed, Get the Initial Values of the Dynamic Variables from the Global Storage Array (#)
 	!Sample Code: T_INITIAL_1=getDynamicArrayValueLastTimestep(1)
 	!-----------------------------------------------------------------------------------------------------------------------
+      PreviousState = getDynamicArrayValueLastTimestep(1)
+      PreviousTime = getDynamicArrayValueLastTimestep(2)
 
 	!-----------------------------------------------------------------------------------------------------------------------
 	!Perform All of the Calculations Here to Set the Outputs from the Model Based on the Inputs
+    
+      !Update the operation time when it is normal
+      If ((DelayedOnOff.EQ.1).AND.(PreviousState.EQ.1)) Then
+        PreviousTime = PreviousTime + Timestep  !Now it is the current operation time
+      EndIf
 
-	!Sample Code: OUT1=IN1+PAR1
-
-	!If the model requires the solution of numerical derivatives, set these derivatives and get the current solution
-	!Sample Code: T1=getNumericalSolution(1)
-	!Sample Code: T2=getNumericalSolution(2)
-	!Sample Code: DTDT1=3.*T2+7.*T1-15.
-	!Sample Code: DTDT2=-2.*T1+11.*T2+21.
-	!Sample Code: Call SetNumericalDerivative(1,DTDT1)
-	!Sample Code: Call SetNumericalDerivative(2,DTDT2)
+      !Calculate if the state is changed
+      ProbUnchanged = 1.0
+      CurrentState = PreviousState
+      CurrentTime = PreviousTime
+      If (PreviousState.EQ.1) Then
+        ProbUnchanged = EXP(-(PreviousTime/MTTF))
+        If (RandomNumber.GT.ProbUnchanged) Then
+          CurrentState = 0
+          CurrentTime = Timestep  !Intial maintenance time
+        Else
+          CurrentState = 1
+          CurrentTime = PreviousTime
+        EndIf
+      Else
+        ProbUnchanged = EXP(-(PreviousTime/MTTR))
+        If (RandomNumber.GT.ProbUnchanged) Then
+          CurrentState = 1
+          CurrentTime = 0.0  !Operation time to be updated in the next iteration
+        Else
+          CurrentState = 0
+          CurrentTime = PreviousTime + Timestep
+        EndIf
+      EndIf
 
 !-----------------------------------------------------------------------------------------------------------------------
 
 !-----------------------------------------------------------------------------------------------------------------------
 !Set the Outputs from this Model (#,Value)
-		Call SetOutputValue(1, 1) ! CurrentState
-		Call SetOutputValue(2, 0) ! CurrentStateTime
+		Call SetOutputValue(1, CurrentState) ! CurrentState
+		Call SetOutputValue(2, CurrentTime) ! CurrentStateTime
+		Call SetOutputValue(3, ProbUnchanged) ! ProbUnchanged
+		Call SetOutputValue(4, PreviousState) ! PreviousState
+		Call SetOutputValue(5, PreviousTime) ! CurrentTime
 
 !-----------------------------------------------------------------------------------------------------------------------
 
@@ -244,6 +289,9 @@
 !Sample Code:  Call SetDynamicArrayValueThisIteration(1,T_FINAL_1)
 !-----------------------------------------------------------------------------------------------------------------------
  
+      Call setDynamicArrayValueThisIteration(1, CurrentState)
+      Call setDynamicArrayValueThisIteration(2, CurrentTime)
+  
       Return
       End
 !-----------------------------------------------------------------------------------------------------------------------
