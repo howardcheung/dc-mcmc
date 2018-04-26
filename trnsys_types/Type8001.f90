@@ -247,7 +247,9 @@
       ProbUnchanged = 1.0
       CurrentState = PreviousState
       CurrentTime = PreviousTime
-      If (PreviousState.GT.0.999) Then
+      If ((DelayedOnOff.GT.0.999).AND.(PreviousState.GT.0.999)) Then
+        !If the machine is normal and is operating
+        !Machine that is normal but not operating will not fail
         ProbUnchanged = EXP(-(PreviousTime/MTTF))
         If (RandomNumber.GT.ProbUnchanged) Then
           CurrentState = 0.0
@@ -256,7 +258,8 @@
           CurrentState = 1.0
           CurrentTime = PreviousTime
         EndIf
-      Else
+      ElseIf (PreviousState.LE.0.999) Then
+        !If machine is under maintenance
         ProbUnchanged = EXP(-(PreviousTime/MTTR))
         If (RandomNumber.GT.ProbUnchanged) Then
           CurrentState = 1.0
